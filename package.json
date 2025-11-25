@@ -10,8 +10,8 @@
     "dependencies": {
         "dotenv": "^16.3.1",
         "edge-js": "^22.9.0",
-        "escpos-encoder": "^2.0.2",
-        "supabase-js": "^0.0.1"
+        "esc-pos-encoder": "^1.4.0",
+        "@supabase/supabase-js": "^2.39.0"
     },
     "devDependencies": {
         "pkg": "^5.8.1"

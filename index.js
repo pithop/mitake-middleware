@@ -1,7 +1,7 @@
 require('dotenv').config();
 const edge = require('edge-js');
 const { createClient } = require('@supabase/supabase-js');
-const EscPosEncoder = require('escpos-encoder');
+const EscPosEncoder = require('esc-pos-encoder');
 
 // --- C# Printer Interop Code ---
 const printerInteropCode = `
@@ -210,7 +210,7 @@ async function handleNewOrder(order, printerName) {
                 ticket.line(`${item.quantity}x ${item.name} - ${(item.price * item.quantity).toFixed(2)}€`);
                 if (item.options && item.options.length > 0) {
                     item.options.forEach(opt => {
-                         ticket.line(`  + ${opt}`);
+                        ticket.line(`  + ${opt}`);
                     });
                 }
             });
