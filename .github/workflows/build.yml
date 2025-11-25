@@ -1,0 +1,33 @@
+name: Build Mitake Middleware
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.x
+        cache: 'npm'
+
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Build Executable
+      run: npm run build
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MitakePrinter-Windows
+        path: dist/mitake-middleware.exe
