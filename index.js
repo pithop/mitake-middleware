@@ -177,8 +177,50 @@ async function main() {
 async function handleNewOrder(order, printerName) {
     if (!printerName) {
         console.error("⚠️ Cannot print: No printer detected.");
-        // Try to rediscover? For simplicity, we assume it was found at startup or user restarts.
         return;
+    }
+
+    console.log(`🧾 Processing Order: ${order.order_number || order.id}`);
+
+    // --- Safe Parsing Logic ---
+    let items = [];
+    let customerInfo = {};
+
+    try {
+        // Parse Items
+        if (typeof order.items === 'string') {
+            try {
+                items = JSON.parse(order.items);
+                // Handle double-encoding if necessary
+                if (typeof items === 'string') {
+                    items = JSON.parse(items);
+                }
+            } catch (e) {
+                console.error("❌ Failed to parse 'items' JSON:", e);
+                items = [];
+            }
+        } else if (Array.isArray(order.items)) {
+            items = order.items;
+        }
+
+        // Parse Customer Info
+        if (typeof order.customer_info === 'string') {
+            try {
+                customerInfo = JSON.parse(order.customer_info);
+                if (typeof customerInfo === 'string') {
+                    customerInfo = JSON.parse(customerInfo);
+                }
+            } catch (e) {
+                console.error("❌ Failed to parse 'customer_info' JSON:", e);
+                customerInfo = {};
+            }
+        } else if (typeof order.customer_info === 'object') {
+            customerInfo = order.customer_info || {};
+        }
+
+    } catch (globalParseErr) {
+        console.error("❌ Critical Error during data parsing:", globalParseErr);
+        return; // Stop to prevent crash
     }
 
     try {
@@ -194,26 +236,25 @@ async function handleNewOrder(order, printerName) {
             .line(`Date: ${new Date().toLocaleString()}`)
             .line('--------------------------------');
 
-        // Parse items if it's a JSON string or object
-        let items = order.items;
-        if (typeof items === 'string') {
-            try {
-                items = JSON.parse(items);
-            } catch (e) {
-                console.error("Error parsing items JSON:", e);
-                items = [];
-            }
+        // Customer Info (if available)
+        if (customerInfo && (customerInfo.name || customerInfo.phone)) {
+            if (customerInfo.name) ticket.line(`Client: ${customerInfo.name}`);
+            if (customerInfo.phone) ticket.line(`Tel: ${customerInfo.phone}`);
+            ticket.line('--------------------------------');
         }
 
-        if (Array.isArray(items)) {
+        if (Array.isArray(items) && items.length > 0) {
             items.forEach(item => {
-                ticket.line(`${item.quantity}x ${item.name} - ${(item.price * item.quantity).toFixed(2)}€`);
+                const price = item.price ? parseFloat(item.price).toFixed(2) : "0.00";
+                ticket.line(`${item.quantity}x ${item.name} - ${price}€`);
                 if (item.options && item.options.length > 0) {
                     item.options.forEach(opt => {
                         ticket.line(`  + ${opt}`);
                     });
                 }
             });
+        } else {
+            ticket.line("No items found or parse error.");
         }
 
         ticket

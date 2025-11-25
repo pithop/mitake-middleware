@@ -7,6 +7,13 @@ This is a standalone middleware application for Mitake Ramen that connects Supab
 - **Realtime**: Prints tickets instantly when a new order is inserted into Supabase.
 - **Standalone**: Single `.exe` file, no installation required.
 
+## ⚠️ IMPORTANT: ADMINISTRATOR RIGHTS ⚠️
+**You MUST run this application as Administrator.**
+1. Right-click `mitake-middleware.exe`.
+2. Select **"Run as administrator"**.
+
+*Why?* This application needs direct access to the Windows Spooler (`winspool.drv`) and WMI to detect USB devices. If run as a normal user, it may fail to find the printer or send data.
+
 ## Setup Instructions
 
 ### 1. Download the Executable
