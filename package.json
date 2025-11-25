@@ -1,27 +1,27 @@
 {
-  "name": "mitake-middleware",
-  "version": "1.0.0",
-  "description": "Standalone Middleware for Mitake Ramen (Node.js + C# + Supabase)",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "build": "pkg ."
-  },
-  "dependencies": {
-    "dotenv": "^16.3.1",
-    "edge-js": "^17.1.0",
-    "escpos-encoder": "^2.0.2",
-    "supabase-js": "^0.0.1"
-  },
-  "devDependencies": {
-    "pkg": "^5.8.1"
-  },
-  "pkg": {
-    "scripts": "index.js",
-    "assets": "node_modules/edge-js/**/*",
-    "targets": [
-      "node18-win-x64"
-    ],
-    "outputPath": "dist"
-  }
+    "name": "mitake-middleware",
+    "version": "1.0.0",
+    "description": "Standalone Middleware for Mitake Ramen (Node.js + C# + Supabase)",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "build": "pkg ."
+    },
+    "dependencies": {
+        "dotenv": "^16.3.1",
+        "edge-js": "^22.9.0",
+        "escpos-encoder": "^2.0.2",
+        "supabase-js": "^0.0.1"
+    },
+    "devDependencies": {
+        "pkg": "^5.8.1"
+    },
+    "pkg": {
+        "scripts": "index.js",
+        "assets": "node_modules/edge-js/**/*",
+        "targets": [
+            "node18-win-x64"
+        ],
+        "outputPath": "dist"
+    }
 }
