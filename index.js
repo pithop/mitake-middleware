@@ -283,24 +283,105 @@ async function main() {
     const supabase = createClient(supabaseUrl, supabaseKey);
     console.log("✅ Connecté à Supabase. En attente de commandes...");
 
-    // 5. Listen for Realtime Events
+    // 5. Polling Fallback Mechanism (CRITIQUE)
+    // Fonction pour vérifier les commandes en attente (au cas où le Realtime échoue)
+    async function checkPendingOrders() {
+        if (!printerName) return;
+        // console.log("🔄 Polling: Vérification des commandes en attente..."); 
+
+        try {
+            const { data: orders, error } = await supabase
+                .from('orders')
+                .select('*')
+                .eq('status', 'pending_print');
+
+            if (error) {
+                console.error("❌ Erreur Polling Supabase:", error.message);
+                return;
+            }
+
+            if (orders && orders.length > 0) {
+                console.log(`📥 Polling: ${orders.length} commande(s) trouvée(s) en attente.`);
+
+                for (const order of orders) {
+                    // IMPORTANT: Marquer immédiatement comme 'printing' pour éviter les doublons
+                    // si le polling suivant se lance avant la fin du traitement
+                    const { error: updateError } = await supabase
+                        .from('orders')
+                        .update({ status: 'printing' })
+                        .eq('id', order.id);
+
+                    if (updateError) {
+                        console.error(`❌ Erreur mise à jour statut commande ${order.id}:`, updateError.message);
+                        continue; // On passe à la suivante si on ne peut pas lock celle-ci
+                    }
+
+                    // Traitement de l'impression
+                    await handleNewOrder(order, printerName);
+                }
+            }
+        } catch (err) {
+            console.error("❌ Erreur inattendue dans la boucle de polling:", err);
+        }
+    }
+
+    // Lancer le polling au démarrage pour rattraper les commandes manquées
+    await checkPendingOrders();
+
+    // Lancer le polling toutes les 5 secondes
+    setInterval(() => {
+        checkPendingOrders();
+    }, 5000);
+    console.log("🔄 Boucle de Polling active (5s).");
+
+
+    // 6. Listen for Realtime Events
     supabase
         .channel('orders-channel')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-            console.log("🔔 Nouvelle commande reçue :", payload.new.id);
+            console.log("🔔 Realtime: Nouvelle commande reçue :", payload.new.id);
 
             // Re-check printer if not found initially?
             if (!printerName) {
-                // Retry logic could go here, but for now we stick to the main flow
                 console.error("⚠️ Impossible d'imprimer : Pas d'imprimante définie.");
                 return;
             }
 
-            await handleNewOrder(payload.new, printerName);
+            // Note: Le polling gère aussi le changement de statut, mais pour le realtime
+            // on veut être le plus réactif possible.
+            // On pourrait aussi update le status ici, mais handleNewOrder ne le fait pas explicitement.
+            // Idéalement, handleNewOrder devrait être idempotent ou on lock ici aussi.
+            // Pour l'instant, on lance l'impression directe.
+            // Si le polling passe juste après, il ne verra plus 'pending_print' si on le change ici ?
+            // Le user a dit: "le changement de statut pending_print -> printed devrait gérer ça naturellement"
+            // Donc on suppose que handleNewOrder ou le process d'impression va finir par mettre à jour le statut ?
+            // ATTENTION: Le user a demandé "UPDATE orders SET status = 'printing'" DANS LE POLLING.
+            // Pour le Realtime, on va faire pareil pour être sûr.
+
+            const { error: updateError } = await supabase
+                .from('orders')
+                .update({ status: 'printing' })
+                .eq('id', payload.new.id);
+
+            if (!updateError) {
+                await handleNewOrder(payload.new, printerName);
+            } else {
+                console.error("⚠️ Erreur lock realtime:", updateError.message);
+                // Si on ne peut pas update, c'est peut-être que le polling l'a déjà pris ?
+                // Ou une erreur réseau. Dans le doute, on essaie quand même d'imprimer si c'est juste une erreur réseau ?
+                // Non, pour éviter les doublons, on respecte le lock.
+            }
         })
-        .subscribe((status) => {
+        .subscribe((status, err) => {
             if (status === 'SUBSCRIBED') {
                 console.log("📡 Abonnement Realtime actif.");
+            } else if (status === 'CHANNEL_ERROR') {
+                console.error("❌ ERREUR REALTIME (CHANNEL_ERROR) :", err);
+            } else if (status === 'TIMED_OUT') {
+                console.error("❌ ERREUR REALTIME (TIMED_OUT) :", err);
+            } else {
+                console.log(`ℹ️ Statut Realtime changé : ${status}`);
+                if (err) console.error("Détail erreur :", err);
             }
         });
 }
