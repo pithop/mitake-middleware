@@ -22,6 +22,18 @@ jobs:
     - name: Install Dependencies
       run: npm install
 
+    - name: Test Run (Printer Diagnostic)
+      shell: powershell
+      continue-on-error: true
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        $job = Start-Job { node index.js }
+        Wait-Job $job -Timeout 10
+        Receive-Job $job
+        Stop-Job $job
+
     - name: Build Executable
       run: npm run build
 

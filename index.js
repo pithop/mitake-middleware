@@ -225,17 +225,58 @@ async function main() {
         process.exit(1);
     }
 
-    // 2. Diagnostic: List all printers
-    await listAllPrinters();
+    // 2. DIAGNOSTIC SYSTÈME - RECHERCHE IMPRIMANTES
+    console.log("------------------------------------------------");
+    console.log("🔍 DIAGNOSTIC SYSTÈME - RECHERCHE IMPRIMANTES");
+    console.log("------------------------------------------------");
 
-    // 3. Discover Printer
-    let printerName = await findPrinterPowershell();
+    let printerName = null;
+    let availablePrinters = [];
+
+    // Commande PowerShell pour lister TOUTES les imprimantes visibles
+    const listCmd = `Get-Printer | Select Name, PortName, DriverName, PrinterStatus | ConvertTo-Json`;
+
+    try {
+        const output = await executePowershell(listCmd);
+        if (output) {
+            const parsed = JSON.parse(output);
+            // Gestion cas imprimante unique (objet) vs multiples (array)
+            availablePrinters = Array.isArray(parsed) ? parsed : [parsed];
+
+            console.table(availablePrinters.map(p => ({ Nom: p.Name, Port: p.PortName, Statut: p.PrinterStatus })));
+            console.log("✅ SUCCÈS : PowerShell a réussi à interroger le Spooler Windows.");
+        } else {
+            console.log("⚠️ Aucune imprimante trouvée (Output vide).");
+        }
+    } catch (e) {
+        console.error("❌ ÉCHEC CRITIQUE : Impossible de lister les imprimantes.", e);
+    }
+    console.log("------------------------------------------------");
+
+    // 3. Logique de sélection de l'imprimante
+    if (process.env.TARGET_PRINTER_NAME) {
+        console.log(`🎯 Configuration manuelle détectée (.env) : "${process.env.TARGET_PRINTER_NAME}"`);
+        printerName = process.env.TARGET_PRINTER_NAME;
+    } else {
+        console.log("🔍 Recherche automatique (Auto-Discovery)...");
+        // Tente de trouver une imprimante contenant "EPSON" dans la liste récupérée
+        const epsonPrinter = availablePrinters.find(p => p.Name && p.Name.toUpperCase().includes("EPSON"));
+
+        if (epsonPrinter) {
+            printerName = epsonPrinter.Name;
+            console.log(`✅ Imprimante EPSON détectée automatiquement : "${printerName}"`);
+        } else {
+            console.log("⚠️ Aucune imprimante EPSON trouvée dans la liste.");
+            // Fallback to WMI if needed, but the list should have it.
+            // We can keep the old WMI check as a last resort or just fail.
+            // Given the user request, we rely on the list.
+        }
+    }
 
     if (!printerName) {
         console.error("❌ Aucune imprimante configurée ou détectée.");
-        // We continue anyway, maybe it appears later? But usually we want it at start.
     } else {
-        console.log(`✅ Imprimante sélectionnée : "${printerName}"`);
+        console.log(`✅ Imprimante active : "${printerName}"`);
     }
 
     // 4. Connect to Supabase
@@ -250,8 +291,9 @@ async function main() {
 
             // Re-check printer if not found initially?
             if (!printerName) {
-                printerName = await findPrinterPowershell();
-                if (printerName) console.log(`✅ Imprimante trouvée (Tardif) : "${printerName}"`);
+                // Retry logic could go here, but for now we stick to the main flow
+                console.error("⚠️ Impossible d'imprimer : Pas d'imprimante définie.");
+                return;
             }
 
             await handleNewOrder(payload.new, printerName);
