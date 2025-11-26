@@ -1,19 +1,74 @@
 require('dotenv').config();
-const edge = require('edge-js');
+const { spawn } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const EscPosEncoder = require('esc-pos-encoder');
 
-// --- C# Printer Interop Code ---
-const printerInteropCode = `
-using System;
-using System.Threading.Tasks;
-using System.Management; // Requires System.Management.dll
-using System.Runtime.InteropServices;
-using System.IO;
+// --- PowerShell Helper Functions ---
 
-public class Startup
+function executePowershell(command) {
+    return new Promise((resolve, reject) => {
+        const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command]);
+
+        let stdout = '';
+        let stderr = '';
+
+        ps.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        ps.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        ps.on('close', (code) => {
+            if (code !== 0) {
+                reject(new Error(`PowerShell exited with code ${code}. Stderr: ${stderr}`));
+            } else {
+                resolve(stdout.trim());
+            }
+        });
+
+        ps.on('error', (err) => {
+            reject(err);
+        });
+    });
+}
+
+async function findPrinterPowershell() {
+    console.log("🔍 Searching for EPSON USB Printer via PowerShell...");
+    // Get-WmiObject Win32_Printer | Where-Object { $_.Name -like "*EPSON*" -and $_.PortName -like "USB*" } | Select-Object -ExpandProperty Name
+    const cmd = `Get-WmiObject Win32_Printer | Where-Object { $_.Name -like "*EPSON*" -and $_.PortName -like "USB*" } | Select-Object -ExpandProperty Name`;
+
+    try {
+        const printerName = await executePowershell(cmd);
+        if (printerName) {
+            // If multiple printers found, it might return them separated by newlines. Take the first one.
+            const firstPrinter = printerName.split('\r\n')[0].trim();
+            return firstPrinter;
+        }
+        return null;
+    } catch (e) {
+        console.error("❌ Error discovering printer via PowerShell:", e.message);
+        return null;
+    }
+}
+
+async function printRawPowershell(printerName, base64Data) {
+    console.log(`🖨️ Sending data to printer: ${printerName}...`);
+
+    // PowerShell script to load winspool.drv and send bytes
+    // We use a Here-String for the C# code
+    const psScript = `
+$printerName = "${printerName}"
+$base64 = "${base64Data}"
+$bytes = [Convert]::FromBase64String($base64)
+
+$code = @"
+using System;
+using System.Runtime.InteropServices;
+
+public class RawPrinterHelper
 {
-    // P/Invoke for Raw Printing
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     public class DOCINFOA
     {
@@ -43,87 +98,81 @@ public class Startup
     [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
     public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
 
-    // Method to Discover EPSON USB Printer via WMI
-    public async Task<object> DiscoverPrinter(object input)
+    public static bool SendBytesToPrinter(string szPrinterName, byte[] pBytes)
     {
-        string printerName = null;
-        try 
-        {
-            // Query WMI for Printers
-            var searcher = new ManagementObjectSearcher("SELECT * FROM Win32_Printer");
-            foreach (ManagementObject printer in searcher.Get())
-            {
-                string name = printer["Name"]?.ToString();
-                string portName = printer["PortName"]?.ToString();
-
-                if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(portName))
-                {
-                    // Check for EPSON and USB
-                    if (name.ToUpper().Contains("EPSON") && portName.ToUpper().StartsWith("USB"))
-                    {
-                        printerName = name;
-                        break; // Found it
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            return "Error: " + ex.Message;
-        }
-
-        return printerName; // Returns null if not found
-    }
-
-    // Method to Print Raw Bytes
-    public async Task<object> PrintRaw(dynamic input)
-    {
-        string printerName = (string)input.printerName;
-        string base64Data = (string)input.data;
-        byte[] rawData = Convert.FromBase64String(base64Data);
-
+        Int32 dwError = 0, dwWritten = 0;
         IntPtr hPrinter = new IntPtr(0);
         DOCINFOA di = new DOCINFOA();
+        bool bSuccess = false;
+
         di.pDocName = "Mitake Ticket";
         di.pDataType = "RAW";
 
-        try
+        if (OpenPrinter(szPrinterName.Normalize(), out hPrinter, IntPtr.Zero))
         {
-            if (OpenPrinter(printerName.Normalize(), out hPrinter, IntPtr.Zero))
+            if (StartDocPrinter(hPrinter, 1, di))
             {
-                if (StartDocPrinter(hPrinter, 1, di))
+                if (StartPagePrinter(hPrinter))
                 {
-                    if (StartPagePrinter(hPrinter))
-                    {
-                        IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(rawData.Length);
-                        Marshal.Copy(rawData, 0, pUnmanagedBytes, rawData.Length);
-                        int dwWritten;
-                        WritePrinter(hPrinter, pUnmanagedBytes, rawData.Length, out dwWritten);
-                        Marshal.FreeCoTaskMem(pUnmanagedBytes);
-                        EndPagePrinter(hPrinter);
-                    }
-                    EndDocPrinter(hPrinter);
+                    IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(pBytes.Length);
+                    Marshal.Copy(pBytes, 0, pUnmanagedBytes, pBytes.Length);
+                    bSuccess = WritePrinter(hPrinter, pUnmanagedBytes, pBytes.Length, out dwWritten);
+                    Marshal.FreeCoTaskMem(pUnmanagedBytes);
+                    EndPagePrinter(hPrinter);
                 }
-                ClosePrinter(hPrinter);
-                return true;
+                EndDocPrinter(hPrinter);
             }
-            else 
-            {
-                return false;
-            }
+            ClosePrinter(hPrinter);
         }
-        catch (Exception ex)
-        {
-            return "Error: " + ex.Message;
-        }
+        return bSuccess;
     }
 }
+"@
+
+Add-Type -TypeDefinition $code
+$result = [RawPrinterHelper]::SendBytesToPrinter($printerName, $bytes)
+Write-Output $result
 `;
 
-// --- Node.js Logic ---
+    // We pass the script encoded in Base64 to avoid escaping issues with spawn
+    const psScriptBase64 = Buffer.from(psScript, 'utf16le').toString('base64');
+    const cmd = `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${psScriptBase64}`;
+
+    return new Promise((resolve, reject) => {
+        const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', psScriptBase64]);
+
+        let stdout = '';
+        let stderr = '';
+
+        ps.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        ps.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        ps.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`PowerShell Error: ${stderr}`);
+                resolve(false);
+            } else {
+                // Check if output contains "True"
+                if (stdout.includes("True")) {
+                    resolve(true);
+                } else {
+                    console.error(`PowerShell Output: ${stdout}`);
+                    resolve(false);
+                }
+            }
+        });
+    });
+}
+
+// --- Main Application Logic ---
 
 async function main() {
-    console.log("🍜 Mitake Middleware Starting...");
+    console.log("🍜 Mitake Middleware (PowerShell Edition) Starting...");
 
     // 1. Check Environment Variables
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -135,23 +184,11 @@ async function main() {
     }
 
     // 2. Discover Printer
-    console.log("🔍 Searching for EPSON USB Printer...");
-    const discoverPrinter = edge.func({
-        source: printerInteropCode,
-        references: ['System.Management.dll']
-    });
-
-    let printerName = null;
-    try {
-        printerName = await discoverPrinter(null);
-    } catch (e) {
-        console.error("❌ Error discovering printer:", e);
-    }
+    let printerName = await findPrinterPowershell();
 
     if (!printerName) {
-        console.error("❌ No EPSON USB printer found. Please check connection.");
-        // We don't exit here, maybe they plug it in later? 
-        // For now, let's just warn. Realtime will still listen but print will fail.
+        console.error("❌ No EPSON USB printer found via PowerShell.");
+        // We continue anyway, maybe it appears later? But usually we want it at start.
     } else {
         console.log(`✅ Printer Found: ${printerName}`);
     }
@@ -165,6 +202,13 @@ async function main() {
         .channel('orders-channel')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
             console.log("🔔 New Order Received:", payload.new.id);
+
+            // Re-check printer if not found initially?
+            if (!printerName) {
+                printerName = await findPrinterPowershell();
+                if (printerName) console.log(`✅ Printer Found (Late): ${printerName}`);
+            }
+
             await handleNewOrder(payload.new, printerName);
         })
         .subscribe((status) => {
@@ -191,7 +235,6 @@ async function handleNewOrder(order, printerName) {
         if (typeof order.items === 'string') {
             try {
                 items = JSON.parse(order.items);
-                // Handle double-encoding if necessary
                 if (typeof items === 'string') {
                     items = JSON.parse(items);
                 }
@@ -220,7 +263,7 @@ async function handleNewOrder(order, printerName) {
 
     } catch (globalParseErr) {
         console.error("❌ Critical Error during data parsing:", globalParseErr);
-        return; // Stop to prevent crash
+        return;
     }
 
     try {
@@ -236,7 +279,7 @@ async function handleNewOrder(order, printerName) {
             .line(`Date: ${new Date().toLocaleString()}`)
             .line('--------------------------------');
 
-        // Customer Info (if available)
+        // Customer Info
         if (customerInfo && (customerInfo.name || customerInfo.phone)) {
             if (customerInfo.name) ticket.line(`Client: ${customerInfo.name}`);
             if (customerInfo.phone) ticket.line(`Tel: ${customerInfo.phone}`);
@@ -268,19 +311,13 @@ async function handleNewOrder(order, printerName) {
         const rawData = ticket.encode();
         const base64Data = Buffer.from(rawData).toString('base64');
 
-        // 6. Print via C#
-        const printRaw = edge.func({
-            source: printerInteropCode,
-            references: ['System.Management.dll']
-        });
-
-        console.log("🖨️ Printing ticket...");
-        const result = await printRaw({ printerName: printerName, data: base64Data });
+        // 6. Print via PowerShell
+        const result = await printRawPowershell(printerName, base64Data);
 
         if (result === true) {
             console.log("✅ Print successful.");
         } else {
-            console.error("❌ Print failed:", result);
+            console.error("❌ Print failed.");
         }
 
     } catch (err) {
