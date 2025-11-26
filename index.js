@@ -34,8 +34,50 @@ function executePowershell(command) {
     });
 }
 
+async function listAllPrinters() {
+    console.log("📋 IMPRIMANTES DÉTECTÉES SUR CE PC :");
+    const cmd = `Get-Printer | Select Name, PortName, DriverName, PrinterStatus | ConvertTo-Json`;
+
+    try {
+        const jsonOutput = await executePowershell(cmd);
+        if (!jsonOutput) {
+            console.log("⚠️ Aucune imprimante trouvée.");
+            return;
+        }
+
+        let printers = [];
+        try {
+            printers = JSON.parse(jsonOutput);
+            if (!Array.isArray(printers)) {
+                printers = [printers]; // Handle single object case
+            }
+        } catch (e) {
+            console.error("⚠️ Erreur parsing JSON imprimantes:", e.message);
+            return;
+        }
+
+        console.table(printers.map(p => ({
+            Name: p.Name,
+            Port: p.PortName,
+            Status: p.PrinterStatus
+        })));
+
+        console.log("\nℹ️ Pour choisir une imprimante, ajoutez TARGET_PRINTER_NAME=\"Nom Exact\" dans votre fichier .env\n");
+
+    } catch (e) {
+        console.error("❌ Erreur lors de la récupération des imprimantes:", e.message);
+    }
+}
+
 async function findPrinterPowershell() {
-    console.log("🔍 Searching for EPSON USB Printer via PowerShell...");
+    // Priority 1: Check .env
+    if (process.env.TARGET_PRINTER_NAME) {
+        console.log(`🎯 Configuration manuelle détectée : "${process.env.TARGET_PRINTER_NAME}"`);
+        return process.env.TARGET_PRINTER_NAME;
+    }
+
+    // Priority 2: Auto-discovery
+    console.log("🔍 Recherche automatique d'une imprimante EPSON USB...");
     // Get-WmiObject Win32_Printer | Where-Object { $_.Name -like "*EPSON*" -and $_.PortName -like "USB*" } | Select-Object -ExpandProperty Name
     const cmd = `Get-WmiObject Win32_Printer | Where-Object { $_.Name -like "*EPSON*" -and $_.PortName -like "USB*" } | Select-Object -ExpandProperty Name`;
 
@@ -48,13 +90,13 @@ async function findPrinterPowershell() {
         }
         return null;
     } catch (e) {
-        console.error("❌ Error discovering printer via PowerShell:", e.message);
+        console.error("❌ Erreur découverte auto:", e.message);
         return null;
     }
 }
 
 async function printRawPowershell(printerName, base64Data) {
-    console.log(`🖨️ Sending data to printer: ${printerName}...`);
+    console.log(`🖨️ Envoi des données vers : "${printerName}"...`);
 
     // PowerShell script to load winspool.drv and send bytes
     // We use a Here-String for the C# code
@@ -183,48 +225,51 @@ async function main() {
         process.exit(1);
     }
 
-    // 2. Discover Printer
+    // 2. Diagnostic: List all printers
+    await listAllPrinters();
+
+    // 3. Discover Printer
     let printerName = await findPrinterPowershell();
 
     if (!printerName) {
-        console.error("❌ No EPSON USB printer found via PowerShell.");
+        console.error("❌ Aucune imprimante configurée ou détectée.");
         // We continue anyway, maybe it appears later? But usually we want it at start.
     } else {
-        console.log(`✅ Printer Found: ${printerName}`);
+        console.log(`✅ Imprimante sélectionnée : "${printerName}"`);
     }
 
-    // 3. Connect to Supabase
+    // 4. Connect to Supabase
     const supabase = createClient(supabaseUrl, supabaseKey);
-    console.log("✅ Connected to Supabase. Listening for orders...");
+    console.log("✅ Connecté à Supabase. En attente de commandes...");
 
-    // 4. Listen for Realtime Events
+    // 5. Listen for Realtime Events
     supabase
         .channel('orders-channel')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-            console.log("🔔 New Order Received:", payload.new.id);
+            console.log("🔔 Nouvelle commande reçue :", payload.new.id);
 
             // Re-check printer if not found initially?
             if (!printerName) {
                 printerName = await findPrinterPowershell();
-                if (printerName) console.log(`✅ Printer Found (Late): ${printerName}`);
+                if (printerName) console.log(`✅ Imprimante trouvée (Tardif) : "${printerName}"`);
             }
 
             await handleNewOrder(payload.new, printerName);
         })
         .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
-                console.log("📡 Realtime subscription active.");
+                console.log("📡 Abonnement Realtime actif.");
             }
         });
 }
 
 async function handleNewOrder(order, printerName) {
     if (!printerName) {
-        console.error("⚠️ Cannot print: No printer detected.");
+        console.error("⚠️ Impossible d'imprimer : Aucune imprimante détectée.");
         return;
     }
 
-    console.log(`🧾 Processing Order: ${order.order_number || order.id}`);
+    console.log(`🧾 Traitement de la commande : ${order.order_number || order.id}`);
 
     // --- Safe Parsing Logic ---
     let items = [];
@@ -315,13 +360,13 @@ async function handleNewOrder(order, printerName) {
         const result = await printRawPowershell(printerName, base64Data);
 
         if (result === true) {
-            console.log("✅ Print successful.");
+            console.log("✅ Impression réussie.");
         } else {
-            console.error("❌ Print failed.");
+            console.error("❌ Échec de l'impression.");
         }
 
     } catch (err) {
-        console.error("❌ Error processing order:", err);
+        console.error("❌ Erreur traitement commande:", err);
     }
 }
 

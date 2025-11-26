@@ -3,7 +3,9 @@
 This is a standalone middleware application for Mitake Ramen that connects Supabase Realtime to an EPSON TM-T20IV USB printer on Windows 10/11.
 
 ## Features
-- **Zero Config**: Automatically detects the EPSON printer via USB.
+- **Diagnostic Mode**: Lists all available printers at startup.
+- **Manual Configuration**: Force a specific printer via `.env`.
+- **Zero Config**: Automatically detects the EPSON printer via USB if no manual config is present.
 - **Realtime**: Prints tickets instantly when a new order is inserted into Supabase.
 - **Standalone**: Single `.exe` file, no installation required.
 
@@ -30,14 +32,26 @@ This is a standalone middleware application for Mitake Ramen that connects Supab
    SUPABASE_KEY=your-anon-key
    ```
 
-### 3. Run
-1. Ensure your EPSON TM-T20IV printer is connected via USB and powered on.
+### 3. Run & Printer Selection
+1. Ensure your printer is connected and powered on.
 2. Double-click `mitake-middleware.exe`.
-3. A console window will open showing the status:
-   - "Searching for EPSON USB Printer..."
-   - "Printer Found: EPSON TM-T20IV..."
-   - "Connected to Supabase..."
+3. The console will display a list of **DETECTED PRINTERS**.
+
+#### Option A: Auto-Detection
+If you do nothing, the script will try to find a printer named "EPSON" on a "USB" port.
+
+#### Option B: Manual Selection (Recommended if Auto fails)
+If the auto-detection fails, copy the **exact name** of your printer from the list displayed in the console.
+Add it to your `.env` file:
+
+```env
+TARGET_PRINTER_NAME="EPSON TM-T20IV Receipt"
+```
+*(Keep the quotes if there are spaces in the name)*
+
+Restart the application. It will now say:
+`🎯 Configuration manuelle détectée : "EPSON TM-T20IV Receipt"`
 
 ## Troubleshooting
-- **Printer not found**: Ensure the printer is ON and connected via USB. The app looks for a printer with "EPSON" in the name and "USB" in the port name.
+- **Printer not found**: Check the console output for the list of printers. Use `TARGET_PRINTER_NAME` in `.env` to force the correct one.
 - **Supabase Error**: Check your `.env` file for typos in the URL or Key.
