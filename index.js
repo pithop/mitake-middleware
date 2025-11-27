@@ -96,6 +96,12 @@ async function findPrinterPowershell() {
 }
 
 async function printRawPowershell(printerName, base64Data) {
+    // Support Imprimante Virtuelle (Microsoft Print to PDF)
+    if (printerName.toUpperCase().includes("PDF")) {
+        console.log("📝 [SIMULATION] Impression du ticket (Imprimante Virtuelle PDF détectée)...");
+        return true;
+    }
+
     console.log(`🖨️ Envoi des données vers : "${printerName}"...`);
 
     // PowerShell script to load winspool.drv and send bytes
@@ -253,30 +259,35 @@ async function main() {
     }
     console.log("------------------------------------------------");
 
-    // 3. Logique de sélection de l'imprimante
-    if (process.env.TARGET_PRINTER_NAME) {
-        console.log(`🎯 Configuration manuelle détectée (.env) : "${process.env.TARGET_PRINTER_NAME}"`);
-        printerName = process.env.TARGET_PRINTER_NAME;
+    // 3. Logique de sélection des imprimantes (DUAL PRINTER)
+    let kitchenPrinter = process.env.PRINTER_KITCHEN_NAME;
+    let cashierPrinter = process.env.PRINTER_CASHIER_NAME;
+
+    if (kitchenPrinter && cashierPrinter) {
+        console.log(`🎯 Configuration Multi-Imprimantes détectée :`);
+        console.log(`   👨‍🍳 Cuisine : "${kitchenPrinter}"`);
+        console.log(`   💰 Caisse  : "${cashierPrinter}"`);
     } else {
-        console.log("🔍 Recherche automatique (Auto-Discovery)...");
-        // Tente de trouver une imprimante contenant "EPSON" dans la liste récupérée
+        console.log("⚠️ Configuration incomplète dans .env (PRINTER_KITCHEN_NAME / PRINTER_CASHIER_NAME).");
+        console.log("🔍 Recherche automatique d'une imprimante de secours (Fallback)...");
+
+        // Fallback: Auto-discovery
         const epsonPrinter = availablePrinters.find(p => p.Name && p.Name.toUpperCase().includes("EPSON"));
+        const fallbackPrinter = epsonPrinter ? epsonPrinter.Name : (availablePrinters[0] ? availablePrinters[0].Name : null);
 
-        if (epsonPrinter) {
-            printerName = epsonPrinter.Name;
-            console.log(`✅ Imprimante EPSON détectée automatiquement : "${printerName}"`);
+        if (fallbackPrinter) {
+            console.log(`✅ Imprimante de secours trouvée : "${fallbackPrinter}"`);
+            if (!kitchenPrinter) {
+                kitchenPrinter = fallbackPrinter;
+                console.log(`   👨‍🍳 Cuisine (Fallback) : "${kitchenPrinter}"`);
+            }
+            if (!cashierPrinter) {
+                cashierPrinter = fallbackPrinter;
+                console.log(`   💰 Caisse (Fallback)  : "${cashierPrinter}"`);
+            }
         } else {
-            console.log("⚠️ Aucune imprimante EPSON trouvée dans la liste.");
-            // Fallback to WMI if needed, but the list should have it.
-            // We can keep the old WMI check as a last resort or just fail.
-            // Given the user request, we rely on the list.
+            console.error("❌ AUCUNE IMPRIMANTE DÉTECTÉE. L'impression échouera.");
         }
-    }
-
-    if (!printerName) {
-        console.error("❌ Aucune imprimante configurée ou détectée.");
-    } else {
-        console.log(`✅ Imprimante active : "${printerName}"`);
     }
 
     // 4. Connect to Supabase
@@ -285,9 +296,8 @@ async function main() {
 
     // 5. Polling Fallback Mechanism (CRITIQUE)
     // Fonction pour vérifier les commandes en attente (au cas où le Realtime échoue)
-    async function checkPendingOrders() {
-        if (!printerName) return;
-        // console.log("🔄 Polling: Vérification des commandes en attente..."); 
+    async function pollPendingOrders() {
+        if (!kitchenPrinter && !cashierPrinter) return;
 
         try {
             const { data: orders, error } = await supabase
@@ -301,23 +311,34 @@ async function main() {
             }
 
             if (orders && orders.length > 0) {
-                console.log(`📥 Polling: ${orders.length} commande(s) trouvée(s) en attente.`);
-
                 for (const order of orders) {
-                    // IMPORTANT: Marquer immédiatement comme 'printing' pour éviter les doublons
-                    // si le polling suivant se lance avant la fin du traitement
+                    console.log(`🔄 Commande récupérée par Polling: ${order.id}`);
+
+                    // 1. LOCK
                     const { error: updateError } = await supabase
                         .from('orders')
                         .update({ status: 'printing' })
                         .eq('id', order.id);
 
                     if (updateError) {
-                        console.error(`❌ Erreur mise à jour statut commande ${order.id}:`, updateError.message);
-                        continue; // On passe à la suivante si on ne peut pas lock celle-ci
+                        console.error(`❌ Erreur lock (printing) commande ${order.id}:`, updateError.message);
+                        continue;
                     }
 
-                    // Traitement de l'impression
-                    await handleNewOrder(order, printerName);
+                    // 2. PRINT (Dual)
+                    await handleNewOrder(order, kitchenPrinter, cashierPrinter);
+
+                    // 3. FINALIZE
+                    const { error: finalError } = await supabase
+                        .from('orders')
+                        .update({ status: 'printed' })
+                        .eq('id', order.id);
+
+                    if (finalError) {
+                        console.error(`⚠️ Erreur update final (printed) commande ${order.id}:`, finalError.message);
+                    } else {
+                        console.log(`✅ Commande ${order.id} marquée comme 'printed'.`);
+                    }
                 }
             }
         } catch (err) {
@@ -325,14 +346,14 @@ async function main() {
         }
     }
 
-    // Lancer le polling au démarrage pour rattraper les commandes manquées
-    await checkPendingOrders();
+    // Lancer le polling au démarrage
+    await pollPendingOrders();
 
     // Lancer le polling toutes les 5 secondes
     setInterval(() => {
-        checkPendingOrders();
+        pollPendingOrders();
     }, 5000);
-    console.log("🔄 Boucle de Polling active (5s).");
+    console.log("⏱️ Mode Polling activé (Vérification toutes les 5s).");
 
 
     // 6. Listen for Realtime Events
@@ -341,35 +362,27 @@ async function main() {
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
             console.log("🔔 Realtime: Nouvelle commande reçue :", payload.new.id);
 
-            // Re-check printer if not found initially?
-            if (!printerName) {
+            if (!kitchenPrinter && !cashierPrinter) {
                 console.error("⚠️ Impossible d'imprimer : Pas d'imprimante définie.");
                 return;
             }
 
-            // Note: Le polling gère aussi le changement de statut, mais pour le realtime
-            // on veut être le plus réactif possible.
-            // On pourrait aussi update le status ici, mais handleNewOrder ne le fait pas explicitement.
-            // Idéalement, handleNewOrder devrait être idempotent ou on lock ici aussi.
-            // Pour l'instant, on lance l'impression directe.
-            // Si le polling passe juste après, il ne verra plus 'pending_print' si on le change ici ?
-            // Le user a dit: "le changement de statut pending_print -> printed devrait gérer ça naturellement"
-            // Donc on suppose que handleNewOrder ou le process d'impression va finir par mettre à jour le statut ?
-            // ATTENTION: Le user a demandé "UPDATE orders SET status = 'printing'" DANS LE POLLING.
-            // Pour le Realtime, on va faire pareil pour être sûr.
-
+            // Lock Realtime
             const { error: updateError } = await supabase
                 .from('orders')
                 .update({ status: 'printing' })
                 .eq('id', payload.new.id);
 
             if (!updateError) {
-                await handleNewOrder(payload.new, printerName);
+                await handleNewOrder(payload.new, kitchenPrinter, cashierPrinter);
+
+                // Finalize Realtime
+                await supabase
+                    .from('orders')
+                    .update({ status: 'printed' })
+                    .eq('id', payload.new.id);
             } else {
                 console.error("⚠️ Erreur lock realtime:", updateError.message);
-                // Si on ne peut pas update, c'est peut-être que le polling l'a déjà pris ?
-                // Ou une erreur réseau. Dans le doute, on essaie quand même d'imprimer si c'est juste une erreur réseau ?
-                // Non, pour éviter les doublons, on respecte le lock.
             }
         })
         .subscribe((status, err) => {
@@ -386,12 +399,119 @@ async function main() {
         });
 }
 
-async function handleNewOrder(order, printerName) {
-    if (!printerName) {
-        console.error("⚠️ Impossible d'imprimer : Aucune imprimante détectée.");
-        return;
+// --- Ticket Generators ---
+
+function generateKitchenTicket(order, items, customerInfo) {
+    const encoder = new EscPosEncoder();
+    let ticket = encoder.initialize();
+
+    // Header Cuisine (Gros)
+    ticket
+        .align('center')
+        .size('2', '2')
+        .line('BON CUISINE')
+        .size('1', '1') // Reset size
+        .line('--------------------------------')
+        .align('left');
+
+    ticket.line(`CMD: ${order.order_number || order.id}`);
+    ticket.line(`Heure: ${new Date().toLocaleTimeString()}`);
+    ticket.line('--------------------------------');
+
+    // Body Cuisine (Items)
+    if (Array.isArray(items) && items.length > 0) {
+        items.forEach(item => {
+            // Quantité en GRAS + Nom
+            ticket.bold(true).text(`${item.quantity}x `).bold(false).line(item.name);
+
+            // Options & Notes (Indented)
+            if (item.options && item.options.length > 0) {
+                item.options.forEach(opt => {
+                    ticket.line(`   + ${opt}`);
+                });
+            }
+            if (item.notes) { // Suppose 'notes' or 'comment' field exists
+                ticket.invert(true).text(`   NOTE: ${item.notes} `).invert(false).newline();
+            }
+            ticket.newline();
+        });
+    } else {
+        ticket.line("Aucun article.");
     }
 
+    ticket
+        .line('--------------------------------')
+        .newline()
+        .newline()
+        .cut();
+
+    return ticket.encode();
+}
+
+function generateCashierTicket(order, items, customerInfo) {
+    const encoder = new EscPosEncoder();
+    let ticket = encoder.initialize();
+
+    // Header Caisse
+    ticket
+        .align('center')
+        .line('MITAKE RAMEN')
+        .line('TICKET CLIENT')
+        .line('--------------------------------')
+        .align('left');
+
+    ticket.line(`CMD: ${order.order_number || order.id}`);
+    ticket.line(`Date: ${new Date().toLocaleString()}`);
+    ticket.line('--------------------------------');
+
+    // Body Caisse (Items + Prix)
+    if (Array.isArray(items) && items.length > 0) {
+        items.forEach(item => {
+            const price = item.price ? parseFloat(item.price).toFixed(2) : "0.00";
+            ticket.line(`${item.quantity}x ${item.name}`);
+            ticket.align('right').line(`${price} EUR`).align('left');
+
+            if (item.options && item.options.length > 0) {
+                item.options.forEach(opt => {
+                    ticket.line(`   + ${opt}`);
+                });
+            }
+        });
+    }
+
+    ticket.line('--------------------------------');
+
+    // Footer Caisse
+    const total = order.total_price ? parseFloat(order.total_price).toFixed(2) : "0.00";
+    ticket
+        .align('right')
+        .bold(true).line(`TOTAL: ${total} EUR`).bold(false)
+        .newline();
+
+    ticket.align('left');
+    // Payment Method (Simulation if not in order object)
+    const paymentMethod = order.payment_method || "CB / Espèces";
+    ticket.line(`Paiement: ${paymentMethod}`);
+
+    // Customer Info
+    if (customerInfo && (customerInfo.name || customerInfo.phone)) {
+        ticket.line('--------------------------------');
+        if (customerInfo.name) ticket.line(`Client: ${customerInfo.name}`);
+        if (customerInfo.phone) ticket.line(`Tel: ${customerInfo.phone}`);
+    }
+
+    ticket
+        .newline()
+        .align('center')
+        .line('Merci de votre visite !')
+        .newline()
+        .newline()
+        .cut();
+
+    return ticket.encode();
+}
+
+async function handleNewOrder(order, kitchenPrinter, cashierPrinter) {
     console.log(`🧾 Traitement de la commande : ${order.order_number || order.id}`);
 
     // --- Safe Parsing Logic ---
@@ -403,9 +523,7 @@ async function handleNewOrder(order, printerName) {
         if (typeof order.items === 'string') {
             try {
                 items = JSON.parse(order.items);
-                if (typeof items === 'string') {
-                    items = JSON.parse(items);
-                }
+                if (typeof items === 'string') items = JSON.parse(items);
             } catch (e) {
                 console.error("❌ Failed to parse 'items' JSON:", e);
                 items = [];
@@ -418,9 +536,7 @@ async function handleNewOrder(order, printerName) {
         if (typeof order.customer_info === 'string') {
             try {
                 customerInfo = JSON.parse(order.customer_info);
-                if (typeof customerInfo === 'string') {
-                    customerInfo = JSON.parse(customerInfo);
-                }
+                if (typeof customerInfo === 'string') customerInfo = JSON.parse(customerInfo);
             } catch (e) {
                 console.error("❌ Failed to parse 'customer_info' JSON:", e);
                 customerInfo = {};
@@ -435,61 +551,28 @@ async function handleNewOrder(order, printerName) {
     }
 
     try {
-        // 5. Generate ESC/POS Data
-        const encoder = new EscPosEncoder();
-        let ticket = encoder
-            .initialize()
-            .align('center')
-            .line('MITAKE RAMEN')
-            .line('--------------------------------')
-            .align('left')
-            .line(`Order: ${order.order_number || order.id}`)
-            .line(`Date: ${new Date().toLocaleString()}`)
-            .line('--------------------------------');
-
-        // Customer Info
-        if (customerInfo && (customerInfo.name || customerInfo.phone)) {
-            if (customerInfo.name) ticket.line(`Client: ${customerInfo.name}`);
-            if (customerInfo.phone) ticket.line(`Tel: ${customerInfo.phone}`);
-            ticket.line('--------------------------------');
+        // 1. Impression CUISINE
+        if (kitchenPrinter) {
+            console.log(`👨‍🍳 Génération ticket CUISINE pour ${kitchenPrinter}...`);
+            const kitchenData = generateKitchenTicket(order, items, customerInfo);
+            const kitchenBase64 = Buffer.from(kitchenData).toString('base64');
+            const kResult = await printRawPowershell(kitchenPrinter, kitchenBase64);
+            if (kResult) console.log("✅ Ticket CUISINE envoyé.");
+            else console.error("❌ Échec ticket CUISINE.");
         }
 
-        if (Array.isArray(items) && items.length > 0) {
-            items.forEach(item => {
-                const price = item.price ? parseFloat(item.price).toFixed(2) : "0.00";
-                ticket.line(`${item.quantity}x ${item.name} - ${price}€`);
-                if (item.options && item.options.length > 0) {
-                    item.options.forEach(opt => {
-                        ticket.line(`  + ${opt}`);
-                    });
-                }
-            });
-        } else {
-            ticket.line("No items found or parse error.");
-        }
-
-        ticket
-            .line('--------------------------------')
-            .align('right')
-            .line(`TOTAL: ${order.total_price}€`)
-            .newline()
-            .newline()
-            .cut();
-
-        const rawData = ticket.encode();
-        const base64Data = Buffer.from(rawData).toString('base64');
-
-        // 6. Print via PowerShell
-        const result = await printRawPowershell(printerName, base64Data);
-
-        if (result === true) {
-            console.log("✅ Impression réussie.");
-        } else {
-            console.error("❌ Échec de l'impression.");
+        // 2. Impression CAISSE
+        if (cashierPrinter) {
+            console.log(`💰 Génération ticket CAISSE pour ${cashierPrinter}...`);
+            const cashierData = generateCashierTicket(order, items, customerInfo);
+            const cashierBase64 = Buffer.from(cashierData).toString('base64');
+            const cResult = await printRawPowershell(cashierPrinter, cashierBase64);
+            if (cResult) console.log("✅ Ticket CAISSE envoyé.");
+            else console.error("❌ Échec ticket CAISSE.");
         }
 
     } catch (err) {
-        console.error("❌ Erreur traitement commande:", err);
+        console.error("❌ Erreur traitement commande (Impression):", err);
     }
 }
 
