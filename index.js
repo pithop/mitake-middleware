@@ -217,6 +217,57 @@ Write-Output $result
     });
 }
 
+// FIX #1: Fonction de Test d'Impression
+async function testPrintConnection(kitchenPrinter, cashierPrinter) {
+    const encoder = new EscPosEncoder();
+
+    // Générer un ticket de test simple
+    const testTicket = encoder
+        .initialize()
+        .align('center')
+        .line('================================')
+        .line('TEST DE CONNEXION OK')
+        .line('================================')
+        .line('')
+        .line(`Heure: ${new Date().toLocaleString()}`)
+        .line('')
+        .line('Si ce ticket s\'imprime,')
+        .line('le driver est correct.')
+        .line('')
+        .line('================================')
+        .newline()
+        .newline()
+        .cut()
+        .encode();
+
+    const testBase64 = Buffer.from(testTicket).toString('base64');
+
+    // Tester l'imprimante cuisine
+    if (kitchenPrinter) {
+        console.log(`🧪 Test d'impression CUISINE sur "${kitchenPrinter}"...`);
+        const result = await printRawPowershell(kitchenPrinter, testBase64);
+        if (result) {
+            console.log("✅ Test CUISINE: Commande envoyée au driver.");
+        } else {
+            console.error("❌ Test CUISINE: ÉCHEC. Vérifiez le port USB.");
+        }
+    }
+
+    // Tester l'imprimante caisse (si différente)
+    if (cashierPrinter && cashierPrinter !== kitchenPrinter) {
+        console.log(`🧪 Test d'impression CAISSE sur "${cashierPrinter}"...`);
+        const result = await printRawPowershell(cashierPrinter, testBase64);
+        if (result) {
+            console.log("✅ Test CAISSE: Commande envoyée au driver.");
+        } else {
+            console.error("❌ Test CAISSE: ÉCHEC. Vérifiez le port USB.");
+        }
+    }
+
+    console.log("\nℹ️ Si aucun ticket physique n'est sorti, le driver sélectionné est incorrect.");
+    console.log("💡 Modifiez PRINTER_KITCHEN_NAME/PRINTER_CASHIER_NAME dans .env pour utiliser un autre driver.\n");
+}
+
 // --- Main Application Logic ---
 
 async function main() {
@@ -259,7 +310,7 @@ async function main() {
     }
     console.log("------------------------------------------------");
 
-    // 3. Logique de sélection des imprimantes (DUAL PRINTER)
+    // 3. Logique de sélection des imprimantes (DUAL PRINTER) - AVEC PRIORITÉ USB*
     let kitchenPrinter = process.env.PRINTER_KITCHEN_NAME;
     let cashierPrinter = process.env.PRINTER_CASHIER_NAME;
 
@@ -271,18 +322,58 @@ async function main() {
         console.log("⚠️ Configuration incomplète dans .env (PRINTER_KITCHEN_NAME / PRINTER_CASHIER_NAME).");
         console.log("🔍 Recherche automatique d'une imprimante de secours (Fallback)...");
 
-        // Fallback: Auto-discovery
-        const epsonPrinter = availablePrinters.find(p => p.Name && p.Name.toUpperCase().includes("EPSON"));
-        const fallbackPrinter = epsonPrinter ? epsonPrinter.Name : (availablePrinters[0] ? availablePrinters[0].Name : null);
+        // FIX #3: Support USB* ET TMUSB* (configurable via .env)
+        const preferredPortType = process.env.PRINTER_PORT_PRIORITY || "AUTO"; // USB, TMUSB, ou AUTO
+
+        let fallbackPrinter = null;
+
+        // 1. Si priorité définie, chercher EPSON sur ce type de port
+        if (preferredPortType === "USB") {
+            fallbackPrinter = availablePrinters.find(p =>
+                p.Name && p.Name.toUpperCase().includes("EPSON") &&
+                p.PortName && p.PortName.toUpperCase().startsWith("USB")
+            );
+        } else if (preferredPortType === "TMUSB") {
+            fallbackPrinter = availablePrinters.find(p =>
+                p.Name && p.Name.toUpperCase().includes("EPSON") &&
+                p.PortName && p.PortName.toUpperCase().startsWith("TMUSB")
+            );
+        }
+
+        // 2. Si pas trouvé ou mode AUTO, chercher n'importe quel EPSON (USB puis TMUSB)
+        if (!fallbackPrinter) {
+            fallbackPrinter = availablePrinters.find(p =>
+                p.Name && p.Name.toUpperCase().includes("EPSON") &&
+                p.PortName && p.PortName.toUpperCase().startsWith("USB")
+            );
+        }
+        if (!fallbackPrinter) {
+            fallbackPrinter = availablePrinters.find(p =>
+                p.Name && p.Name.toUpperCase().includes("EPSON") &&
+                p.PortName && p.PortName.toUpperCase().startsWith("TMUSB")
+            );
+        }
+
+        // 3. Sinon chercher juste n'importe quel EPSON
+        if (!fallbackPrinter) {
+            fallbackPrinter = availablePrinters.find(p => p.Name && p.Name.toUpperCase().includes("EPSON"));
+        }
+
+        // 4. En dernier recours, prendre la première imprimante disponible
+        if (!fallbackPrinter && availablePrinters.length > 0) {
+            fallbackPrinter = availablePrinters[0];
+        }
 
         if (fallbackPrinter) {
-            console.log(`✅ Imprimante de secours trouvée : "${fallbackPrinter}"`);
+            const printerName = fallbackPrinter.Name;
+            const portName = fallbackPrinter.PortName || "N/A";
+            console.log(`✅ Imprimante de secours trouvée : "${printerName}" (Port: ${portName})`);
             if (!kitchenPrinter) {
-                kitchenPrinter = fallbackPrinter;
+                kitchenPrinter = printerName;
                 console.log(`   👨‍🍳 Cuisine (Fallback) : "${kitchenPrinter}"`);
             }
             if (!cashierPrinter) {
-                cashierPrinter = fallbackPrinter;
+                cashierPrinter = printerName;
                 console.log(`   💰 Caisse (Fallback)  : "${cashierPrinter}"`);
             }
         } else {
@@ -290,16 +381,24 @@ async function main() {
         }
     }
 
+    // FIX #1: TEST D'IMPRESSION AU DÉMARRAGE
+    console.log("\n🧪 TEST DE CONNEXION IMPRIMANTE...");
+    await testPrintConnection(kitchenPrinter, cashierPrinter);
+    console.log("------------------------------------------------\n");
+
     // 4. Connect to Supabase
     const supabase = createClient(supabaseUrl, supabaseKey);
     console.log("✅ Connecté à Supabase. En attente de commandes...");
 
-    // 5. Polling Fallback Mechanism (CRITIQUE)
+    // 5. Polling Fallback Mechanism (CRITIQUE) - FIX #2: LOGS VERBEUX
     // Fonction pour vérifier les commandes en attente (au cas où le Realtime échoue)
     async function pollPendingOrders() {
         if (!kitchenPrinter && !cashierPrinter) return;
 
         try {
+            // FIX #2: Log de la requête exacte
+            console.log("🔍 Vérification Supabase [Filtre: status='pending_print']...");
+
             const { data: orders, error } = await supabase
                 .from('orders')
                 .select('*')
@@ -310,9 +409,12 @@ async function main() {
                 return;
             }
 
+            // FIX #2: Log du nombre de commandes trouvées
+            console.log(`🔍 Vérification Supabase... ${orders ? orders.length : 0} commande(s) trouvée(s).`);
+
             if (orders && orders.length > 0) {
                 for (const order of orders) {
-                    console.log(`🔄 Commande récupérée par Polling: ${order.id}`);
+                    console.log(`🔄 Commande récupérée par Polling: #${order.id} (${order.order_number || 'N/A'})`);
 
                     // 1. LOCK
                     const { error: updateError } = await supabase
@@ -340,6 +442,9 @@ async function main() {
                         console.log(`✅ Commande ${order.id} marquée comme 'printed'.`);
                     }
                 }
+            } else {
+                // FIX #2: Log explicite quand aucune commande n'est trouvée
+                console.log("   ℹ️ Aucune commande en attente (status='pending_print').");
             }
         } catch (err) {
             console.error("❌ Erreur inattendue dans la boucle de polling:", err);
