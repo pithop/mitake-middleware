@@ -18,6 +18,9 @@
     },
     "pkg": {
         "scripts": "index.js",
+        "assets": [
+            "gui.html"
+        ],
         "targets": [
             "node18-win-x64"
         ],

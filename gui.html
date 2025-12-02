@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mitake - Gestion des Impressions</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.5em;
+            font-weight: 800;
+        }
+
+        .status {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-badge.connected {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .status-badge.disconnected {
+            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
+            color: white;
+        }
+
+        .pulse {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: white;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .filters {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 12px 24px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .filter-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .filter-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+        }
+
+        .orders-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
+        }
+
+        .order-card {
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .order-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .order-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .order-number {
+            font-size: 1.4em;
+            font-weight: 800;
+            color: #333;
+        }
+
+        .order-status {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .order-status.pending_print {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .order-status.printing {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .order-status.printed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .order-info {
+            margin: 15px 0;
+            color: #666;
+            font-size: 0.95em;
+        }
+
+        .order-info p {
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .items-list {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 15px 0;
+        }
+
+        .item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .item:last-child {
+            border-bottom: none;
+        }
+
+        .item-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .item-quantity {
+            color: #667eea;
+            font-weight: 800;
+        }
+
+        .total-price {
+            text-align: right;
+            font-size: 1.5em;
+            font-weight: 800;
+            color: #667eea;
+            margin: 15px 0;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1em;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .btn-print {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-print:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-mark {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-delete {
+            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .empty-state h2 {
+            color: #999;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .empty-state p {
+            color: #ccc;
+        }
+
+        .refresh-btn {
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 12px 30px;
+            border-radius: 30px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .refresh-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍜 Mitake - Gestion des Impressions</h1>
+            <div class="status">
+                <button class="refresh-btn" onclick="loadOrders()">🔄 Rafraîchir</button>
+                <div class="status-badge" id="connectionStatus">
+                    <span class="pulse"></span>
+                    <span>Connexion...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <button class="filter-btn active" onclick="filterOrders('all')">Toutes</button>
+            <button class="filter-btn" onclick="filterOrders('pending_print')">⏳ À Imprimer</button>
+            <button class="filter-btn" onclick="filterOrders('printing')">🖨️ En cours</button>
+            <button class="filter-btn" onclick="filterOrders('printed')">✅ Imprimées</button>
+            <button class="filter-btn" onclick="filterOrders('dine_in')">🍽️ Sur place</button>
+            <button class="filter-btn" onclick="filterOrders('takeaway')">📦 À emporter</button>
+            <button class="filter-btn" onclick="filterOrders('delivery')">🚗 Livraison</button>
+        </div>
+
+        <div id="ordersContainer">
+            <div class="loading">⏳ Chargement des commandes...</div>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURATION - REMPLACEZ PAR VOS CREDENTIALS
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
+        const SUPABASE_KEY = 'YOUR_SUPABASE_KEY_HERE';
+
+        // Si vous avez un fichier .env, chargez les variables depuis là
+        // Pour l'instant, il faut les remplacer manuellement ci-dessus
+
+        let supabase;
+        let allOrders = [];
+        let currentFilter = 'all';
+
+        async function initSupabase() {
+            try {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                
+                // Test connection
+                const { data, error } = await supabase.from('orders').select('id').limit(1);
+                
+                if (error) throw error;
+                
+                updateConnectionStatus(true);
+                await loadOrders();
+                
+                // Setup realtime
+                supabase
+                    .channel('orders-realtime')
+                    .on('postgres_changes', { 
+                        event: '*', 
+                        schema: 'public', 
+                        table: 'orders' 
+                    }, (payload) => {
+                        console.log('Realtime update:', payload);
+                        loadOrders();
+                    })
+                    .subscribe();
+                    
+            } catch (err) {
+                console.error('Erreur connexion Supabase:', err);
+                updateConnectionStatus(false);
+                document.getElementById('ordersContainer').innerHTML = `
+                    <div class="empty-state">
+                        <h2>❌ Erreur de connexion</h2>
+                        <p>Impossible de se connecter à Supabase</p>
+                        <p style="color: red; margin-top: 10px;">${err.message}</p>
+                        <p style="margin-top: 20px;">Vérifiez vos credentials dans le code source (gui.html)</p>
+                    </div>
+                `;
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            if (connected) {
+                statusEl.className = 'status-badge connected';
+                statusEl.innerHTML = '<span class="pulse"></span><span>Connecté</span>';
+            } else {
+                statusEl.className = 'status-badge disconnected';
+                statusEl.innerHTML = '<span></span><span>Déconnecté</span>';
+            }
+        }
+
+        async function loadOrders() {
+            try {
+                const { data: orders, error } = await supabase
+                    .from('orders')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                allOrders = orders || [];
+                renderOrders();
+                
+            } catch (err) {
+                console.error('Erreur chargement commandes:', err);
+                document.getElementById('ordersContainer').innerHTML = `
+                    <div class="empty-state">
+                        <h2>❌ Erreur de chargement</h2>
+                        <p>${err.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function filterOrders(filter) {
+            currentFilter = filter;
+            
+            // Update button states
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            renderOrders();
+        }
+
+        function renderOrders() {
+            const container = document.getElementById('ordersContainer');
+            
+            let filteredOrders = allOrders;
+            
+            if (currentFilter !== 'all') {
+                if (['pending_print', 'printing', 'printed'].includes(currentFilter)) {
+                    filteredOrders = allOrders.filter(o => o.print_status === currentFilter);
+                } else if (['dine_in', 'takeaway', 'delivery'].includes(currentFilter)) {
+                    filteredOrders = allOrders.filter(o => o.type === currentFilter);
+                }
+            }
+            
+            if (filteredOrders.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h2>📭 Aucune commande</h2>
+                        <p>Aucune commande ne correspond aux critères sélectionnés</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="orders-grid">
+                    ${filteredOrders.map(order => renderOrderCard(order)).join('')}
+                </div>
+            `;
+        }
+
+        function renderOrderCard(order) {
+            let items = [];
+            let customerInfo = {};
+            
+            try {
+                items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items || [];
+                customerInfo = typeof order.customer_info === 'string' ? JSON.parse(order.customer_info) : order.customer_info || {};
+            } catch (e) {
+                console.error('Parse error:', e);
+            }
+            
+            const typeEmoji = {
+                'dine_in': '🍽️',
+                'takeaway': '📦',
+                'delivery': '🚗'
+            };
+            
+            const statusText = {
+                'pending_print': 'À imprimer',
+                'printing': 'En cours',
+                'printed': 'Imprimée'
+            };
+            
+            return `
+                <div class="order-card">
+                    <div class="order-header">
+                        <div class="order-number">#${order.order_number || order.id}</div>
+                        <div class="order-status ${order.print_status}">${statusText[order.print_status] || order.print_status}</div>
+                    </div>
+                    
+                    <div class="order-info">
+                        <p>${typeEmoji[order.type] || '📋'} <strong>${order.type === 'dine_in' ? 'Sur place' : order.type === 'takeaway' ? 'À emporter' : 'Livraison'}</strong></p>
+                        ${customerInfo.name ? `<p>👤 ${customerInfo.name}</p>` : ''}
+                        ${customerInfo.phone ? `<p>📞 ${customerInfo.phone}</p>` : ''}
+                        ${customerInfo.address ? `<p>📍 ${customerInfo.address}</p>` : ''}
+                        ${customerInfo.notes ? `<p>📝 ${customerInfo.notes}</p>` : ''}
+                        <p>🕐 ${new Date(order.created_at).toLocaleString('fr-FR')}</p>
+                    </div>
+                    
+                    <div class="items-list">
+                        ${items.map(item => `
+                            <div class="item">
+                                <span class="item-quantity">${item.quantity}x</span>
+                                <span class="item-name">${item.name}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="total-price">${parseFloat(order.total_price || 0).toFixed(2)} €</div>
+                    
+                    <div class="actions">
+                        <button class="btn btn-print" onclick="printOrder(${order.id})" ${order.print_status === 'printed' ? 'disabled' : ''}>
+                            🖨️ Imprimer
+                        </button>
+                        <button class="btn btn-mark" onclick="markAsPrinted(${order.id})">
+                            ✅ Marquer
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function printOrder(orderId) {
+            try {
+                // Update status to printing
+                const { error: updateError } = await supabase
+                    .from('orders')
+                    .update({ print_status: 'printing' })
+                    .eq('id', orderId);
+                
+                if (updateError) throw updateError;
+                
+                // Trigger the print via middleware (it will poll and detect the status change)
+                alert(`✅ Commande #${orderId} envoyée à l'impression!\n\nLe middleware va détecter ce changement et imprimer le ticket.`);
+                
+                await loadOrders();
+                
+            } catch (err) {
+                console.error('Erreur impression:', err);
+                alert('❌ Erreur: ' + err.message);
+            }
+        }
+
+        async function markAsPrinted(orderId) {
+            try {
+                const { error } = await supabase
+                    .from('orders')
+                    .update({ print_status: 'printed' })
+                    .eq('id', orderId);
+                
+                if (error) throw error;
+                
+                await loadOrders();
+                
+            } catch (err) {
+                console.error('Erreur marquage:', err);
+                alert('❌ Erreur: ' + err.message);
+            }
+        }
+
+        // Initialize on page load
+        window.onload = initSupabase;
+    </script>
+</body>
+</html>

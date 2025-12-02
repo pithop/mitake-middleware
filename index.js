@@ -2,6 +2,9 @@ require('dotenv').config();
 const { spawn } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const EscPosEncoder = require('esc-pos-encoder');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 // --- PowerShell Helper Functions ---
 
@@ -268,10 +271,54 @@ async function testPrintConnection(kitchenPrinter, cashierPrinter) {
     console.log("💡 Modifiez PRINTER_KITCHEN_NAME/PRINTER_CASHIER_NAME dans .env pour utiliser un autre driver.\n");
 }
 
+// --- GUI Server ---
+
+function startGuiServer() {
+    const port = 3000;
+
+    try {
+        const guiPath = path.join(__dirname, 'gui.html');
+        // Read file content
+        let guiContent = fs.readFileSync(guiPath, 'utf8');
+
+        // Inject credentials
+        guiContent = guiContent.replace('YOUR_SUPABASE_URL_HERE', process.env.SUPABASE_URL || '');
+        guiContent = guiContent.replace('YOUR_SUPABASE_KEY_HERE', process.env.SUPABASE_KEY || '');
+
+        const server = http.createServer((req, res) => {
+            if (req.url === '/' || req.url === '/index.html') {
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(guiContent);
+            } else {
+                res.writeHead(404);
+                res.end('Not found');
+            }
+        });
+
+        server.listen(port, () => {
+            console.log(`\n🌐 GUI DISPONIBLE : http://localhost:${port}`);
+            console.log(`   (Ouvrez ce lien dans votre navigateur pour gérer les impressions)\n`);
+        });
+
+        server.on('error', (e) => {
+            if (e.code === 'EADDRINUSE') {
+                console.log(`⚠️ Port ${port} occupé, le GUI ne sera pas accessible sur ce port.`);
+            } else {
+                console.error('❌ Erreur serveur GUI:', e);
+            }
+        });
+    } catch (e) {
+        console.error("⚠️ Impossible de démarrer le GUI (Fichier gui.html manquant ?):", e.message);
+    }
+}
+
 // --- Main Application Logic ---
 
 async function main() {
     console.log("🍜 Mitake Middleware (PowerShell Edition) Starting...");
+
+    // START GUI
+    startGuiServer();
 
     // 1. Check Environment Variables
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -397,12 +444,12 @@ async function main() {
 
         try {
             // FIX #2: Log de la requête exacte
-            console.log("🔍 Vérification Supabase [Filtre: status='pending_print']...");
+            console.log("🔍 Vérification Supabase [Filtre: print_status='pending_print']...");
 
             const { data: orders, error } = await supabase
                 .from('orders')
                 .select('*')
-                .eq('status', 'pending_print');
+                .eq('print_status', 'pending_print');
 
             if (error) {
                 console.error("❌ Erreur Polling Supabase:", error.message);
@@ -419,7 +466,7 @@ async function main() {
                     // 1. LOCK
                     const { error: updateError } = await supabase
                         .from('orders')
-                        .update({ status: 'printing' })
+                        .update({ print_status: 'printing' })
                         .eq('id', order.id);
 
                     if (updateError) {
@@ -433,7 +480,7 @@ async function main() {
                     // 3. FINALIZE
                     const { error: finalError } = await supabase
                         .from('orders')
-                        .update({ status: 'printed' })
+                        .update({ print_status: 'printed' })
                         .eq('id', order.id);
 
                     if (finalError) {
@@ -444,7 +491,7 @@ async function main() {
                 }
             } else {
                 // FIX #2: Log explicite quand aucune commande n'est trouvée
-                console.log("   ℹ️ Aucune commande en attente (status='pending_print').");
+                console.log("   ℹ️ Aucune commande en attente (print_status='pending_print').");
             }
         } catch (err) {
             console.error("❌ Erreur inattendue dans la boucle de polling:", err);
@@ -475,7 +522,7 @@ async function main() {
             // Lock Realtime
             const { error: updateError } = await supabase
                 .from('orders')
-                .update({ status: 'printing' })
+                .update({ print_status: 'printing' })
                 .eq('id', payload.new.id);
 
             if (!updateError) {
@@ -484,7 +531,7 @@ async function main() {
                 // Finalize Realtime
                 await supabase
                     .from('orders')
-                    .update({ status: 'printed' })
+                    .update({ print_status: 'printed' })
                     .eq('id', payload.new.id);
             } else {
                 console.error("⚠️ Erreur lock realtime:", updateError.message);
