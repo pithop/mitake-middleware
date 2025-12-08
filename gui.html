@@ -1,11 +1,26 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mitake - Gestion des Impressions</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary: #1a237e;
+            --secondary: #c5a059;
+            /* Gold */
+            --bg: #f4f6f8;
+            --card-bg: #ffffff;
+            --text: #2c3e50;
+            --success: #00b894;
+            --warning: #fdcb6e;
+            --danger: #ff7675;
+            --info: #74b9ff;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,309 +28,428 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             padding: 20px;
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
 
+        /* HEADER */
         .header {
-            background: white;
-            padding: 30px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            background: var(--card-bg);
+            padding: 25px 40px;
+            border-radius: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
             margin-bottom: 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border-left: 6px solid var(--primary);
         }
 
         .header h1 {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 2.5em;
+            color: var(--primary);
+            font-size: 2em;
             font-weight: 800;
+            letter-spacing: -0.5px;
         }
 
-        .status {
+        .status-panel {
             display: flex;
             gap: 20px;
             align-items: center;
         }
 
         .status-badge {
-            padding: 12px 24px;
-            border-radius: 30px;
+            padding: 10px 20px;
+            border-radius: 50px;
             font-weight: 600;
+            font-size: 0.9em;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            background: #eef2f7;
+            color: #636e72;
         }
 
         .status-badge.connected {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            color: white;
+            background: rgba(0, 184, 148, 0.15);
+            color: var(--success);
         }
 
         .status-badge.disconnected {
-            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
-            color: white;
+            background: rgba(255, 118, 117, 0.15);
+            color: var(--danger);
         }
 
         .pulse {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            background: white;
+            background: currentColor;
             animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            0% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
         }
 
+        /* FILTERS */
         .filters {
-            background: white;
-            padding: 20px 30px;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            margin-bottom: 30px;
             display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            padding-bottom: 10px;
         }
 
         .filter-btn {
             padding: 12px 24px;
-            border: 2px solid #e0e0e0;
+            border: none;
             background: white;
-            border-radius: 30px;
-            cursor: pointer;
+            border-radius: 16px;
             font-weight: 600;
-            transition: all 0.3s;
+            color: #636e72;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+            white-space: nowrap;
         }
 
         .filter-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            color: var(--primary);
         }
 
         .filter-btn.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--primary);
             color: white;
-            border-color: transparent;
+            box-shadow: 0 8px 20px rgba(26, 35, 126, 0.3);
         }
 
+        /* GRID */
         .orders-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 25px;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 30px;
         }
 
+        /* CARD */
         .order-card {
-            background: white;
-            border-radius: 20px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: all 0.3s;
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 0;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
-        }
-
-        .order-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 5px;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
         }
 
         .order-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
         }
 
-        .order-header {
+        .card-header {
+            padding: 25px;
+            background: #fafbfc;
+            border-bottom: 1px solid #eee;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
         }
 
-        .order-number {
+        .order-id {
             font-size: 1.4em;
             font-weight: 800;
-            color: #333;
+            color: var(--primary);
         }
 
-        .order-status {
-            padding: 6px 16px;
-            border-radius: 20px;
+        .order-meta {
             font-size: 0.85em;
-            font-weight: 600;
+            color: #b2bec3;
+            margin-top: 4px;
         }
 
-        .order-status.pending_print {
+        .status-pill {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-pill.pending_print {
             background: #fff3cd;
             color: #856404;
         }
 
-        .order-status.printing {
+        .status-pill.printing {
             background: #d1ecf1;
             color: #0c5460;
         }
 
-        .order-status.printed {
+        .status-pill.printed {
             background: #d4edda;
             color: #155724;
         }
 
-        .order-info {
-            margin: 15px 0;
-            color: #666;
-            font-size: 0.95em;
-        }
-
-        .order-info p {
-            margin: 8px 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .items-list {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 12px;
-            margin: 15px 0;
-        }
-
-        .item {
-            padding: 8px 0;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .item:last-child {
-            border-bottom: none;
-        }
-
-        .item-name {
-            font-weight: 600;
+        .status-pill.reprint {
+            background: #e2e6ea;
             color: #333;
         }
 
-        .item-quantity {
-            color: #667eea;
-            font-weight: 800;
+        .card-body {
+            padding: 25px;
+            flex-grow: 1;
         }
 
-        .total-price {
-            text-align: right;
+        .info-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            color: #636e72;
+            font-size: 0.95em;
+        }
+
+        .info-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f1f2f6;
+            border-radius: 8px;
+            color: var(--primary);
+        }
+
+        .items-container {
+            margin-top: 20px;
+            background: #f8f9fa;
+            border-radius: 16px;
+            padding: 15px;
+        }
+
+        .item-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px dashed #dfe6e9;
+            font-size: 0.95em;
+        }
+
+        .item-row:last-child {
+            border-bottom: none;
+        }
+
+        .item-qty {
+            font-weight: 800;
+            color: var(--primary);
+            margin-right: 8px;
+        }
+
+        .item-name {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .item-price {
+            color: #636e72;
+        }
+
+        .total-section {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 2px solid #f1f2f6;
+        }
+
+        .total-label {
+            font-weight: 600;
+            color: #b2bec3;
+        }
+
+        .total-amount {
             font-size: 1.5em;
             font-weight: 800;
-            color: #667eea;
-            margin: 15px 0;
+            color: var(--primary);
         }
 
-        .actions {
-            display: flex;
+        /* ACTIONS */
+        .card-footer {
+            padding: 20px 25px;
+            background: white;
+            border-top: 1px solid #eee;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
-            margin-top: 20px;
         }
 
         .btn {
-            flex: 1;
-            padding: 14px;
+            padding: 12px;
             border: none;
             border-radius: 12px;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s;
-            font-size: 1em;
+            transition: all 0.2s;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transform: translateY(-2px);
         }
 
-        .btn-print {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary {
+            background: var(--primary);
             color: white;
+            grid-column: span 2;
         }
 
-        .btn-print:disabled {
-            background: #ccc;
-            cursor: not-allowed;
+        .btn-secondary {
+            background: #f1f2f6;
+            color: var(--text);
         }
 
-        .btn-mark {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            color: white;
+        .btn-secondary:hover {
+            background: #dfe6e9;
         }
 
-        .btn-delete {
-            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
-            color: white;
+        .btn-outline {
+            background: transparent;
+            border: 2px solid #dfe6e9;
+            color: #636e72;
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* DROPDOWN FOR REPRINT */
+        .reprint-menu {
+            position: absolute;
+            bottom: 70px;
+            left: 25px;
+            right: 25px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            display: none;
+            z-index: 100;
+            animation: slideUp 0.2s ease-out;
+        }
+
+        .reprint-menu.show {
+            display: block;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(10px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .reprint-option {
+            width: 100%;
+            padding: 12px;
+            text-align: left;
+            background: none;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .reprint-option:hover {
+            background: #f8f9fa;
+            color: var(--primary);
         }
 
         .empty-state {
+            grid-column: 1 / -1;
             text-align: center;
-            padding: 60px;
+            padding: 80px;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-radius: 24px;
+            color: #b2bec3;
         }
 
-        .empty-state h2 {
-            color: #999;
-            font-size: 2em;
-            margin-bottom: 10px;
+        .empty-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            display: block;
         }
 
-        .empty-state p {
-            color: #ccc;
-        }
-
-        .refresh-btn {
-            background: white;
-            border: 2px solid #667eea;
-            color: #667eea;
-            padding: 12px 30px;
-            border-radius: 30px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .refresh-btn:hover {
-            background: #667eea;
-            color: white;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: white;
-            font-size: 1.2em;
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
-            <h1>🍜 Mitake - Gestion des Impressions</h1>
-            <div class="status">
-                <button class="refresh-btn" onclick="loadOrders()">🔄 Rafraîchir</button>
+            <div>
+                <h1>🍜 Mitake Manager</h1>
+                <p style="color: #636e72; margin-top: 5px;">Centre de contrôle des impressions</p>
+            </div>
+            <div class="status-panel">
+                <button class="btn btn-secondary" onclick="loadOrders()">🔄 Actualiser</button>
                 <div class="status-badge" id="connectionStatus">
                     <span class="pulse"></span>
                     <span>Connexion...</span>
@@ -324,249 +458,260 @@
         </div>
 
         <div class="filters">
-            <button class="filter-btn active" onclick="filterOrders('all')">Toutes</button>
+            <button class="filter-btn active" onclick="filterOrders('all')">Tout voir</button>
             <button class="filter-btn" onclick="filterOrders('pending_print')">⏳ À Imprimer</button>
             <button class="filter-btn" onclick="filterOrders('printing')">🖨️ En cours</button>
-            <button class="filter-btn" onclick="filterOrders('printed')">✅ Imprimées</button>
+            <button class="filter-btn" onclick="filterOrders('printed')">✅ Terminé</button>
+            <div style="width: 1px; background: #ddd; margin: 0 10px;"></div>
             <button class="filter-btn" onclick="filterOrders('dine_in')">🍽️ Sur place</button>
             <button class="filter-btn" onclick="filterOrders('takeaway')">📦 À emporter</button>
             <button class="filter-btn" onclick="filterOrders('delivery')">🚗 Livraison</button>
         </div>
 
-        <div id="ordersContainer">
-            <div class="loading">⏳ Chargement des commandes...</div>
+        <div id="ordersContainer" class="orders-grid">
+            <!-- Orders will be injected here -->
         </div>
     </div>
 
     <script>
-        // CONFIGURATION - REMPLACEZ PAR VOS CREDENTIALS
+        // --- CONFIGURATION ---
+        // INJECTED BY MIDDLEWARE OR MANUAL
         const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
         const SUPABASE_KEY = 'YOUR_SUPABASE_KEY_HERE';
-
-        // Si vous avez un fichier .env, chargez les variables depuis là
-        // Pour l'instant, il faut les remplacer manuellement ci-dessus
 
         let supabase;
         let allOrders = [];
         let currentFilter = 'all';
 
+        // --- INIT ---
         async function initSupabase() {
             try {
+                // Check if credentials are set
+                if (SUPABASE_URL.includes('YOUR_SUPABASE')) {
+                    throw new Error("Credentials Supabase non configurés dans gui.html");
+                }
+
                 supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                
+
                 // Test connection
-                const { data, error } = await supabase.from('orders').select('id').limit(1);
-                
+                const { error } = await supabase.from('orders').select('id').limit(1);
                 if (error) throw error;
-                
+
                 updateConnectionStatus(true);
                 await loadOrders();
-                
-                // Setup realtime
+
+                // Realtime Subscription
                 supabase
                     .channel('orders-realtime')
-                    .on('postgres_changes', { 
-                        event: '*', 
-                        schema: 'public', 
-                        table: 'orders' 
-                    }, (payload) => {
-                        console.log('Realtime update:', payload);
-                        loadOrders();
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+                        console.log('🔔 Realtime Update:', payload);
+                        loadOrders(); // Refresh on any change
                     })
                     .subscribe();
-                    
+
             } catch (err) {
-                console.error('Erreur connexion Supabase:', err);
+                console.error('Init Error:', err);
                 updateConnectionStatus(false);
                 document.getElementById('ordersContainer').innerHTML = `
                     <div class="empty-state">
-                        <h2>❌ Erreur de connexion</h2>
-                        <p>Impossible de se connecter à Supabase</p>
-                        <p style="color: red; margin-top: 10px;">${err.message}</p>
-                        <p style="margin-top: 20px;">Vérifiez vos credentials dans le code source (gui.html)</p>
+                        <span class="empty-icon">❌</span>
+                        <h2>Erreur de Connexion</h2>
+                        <p>${err.message}</p>
+                        <p style="margin-top:10px; font-size:0.9em">Vérifiez que le middleware a bien injecté les clés API.</p>
                     </div>
                 `;
             }
         }
 
         function updateConnectionStatus(connected) {
-            const statusEl = document.getElementById('connectionStatus');
+            const el = document.getElementById('connectionStatus');
             if (connected) {
-                statusEl.className = 'status-badge connected';
-                statusEl.innerHTML = '<span class="pulse"></span><span>Connecté</span>';
+                el.className = 'status-badge connected';
+                el.innerHTML = '<span class="pulse"></span><span>Système Connecté</span>';
             } else {
-                statusEl.className = 'status-badge disconnected';
-                statusEl.innerHTML = '<span></span><span>Déconnecté</span>';
+                el.className = 'status-badge disconnected';
+                el.innerHTML = '<span></span><span>Déconnecté</span>';
             }
         }
 
+        // --- DATA LOADING ---
         async function loadOrders() {
             try {
-                const { data: orders, error } = await supabase
+                const { data, error } = await supabase
                     .from('orders')
                     .select('*')
-                    .order('created_at', { ascending: false });
+                    .order('created_at', { ascending: false })
+                    .limit(50); // Limit to last 50 for performance
 
                 if (error) throw error;
 
-                allOrders = orders || [];
+                allOrders = data || [];
                 renderOrders();
-                
+
             } catch (err) {
-                console.error('Erreur chargement commandes:', err);
-                document.getElementById('ordersContainer').innerHTML = `
-                    <div class="empty-state">
-                        <h2>❌ Erreur de chargement</h2>
-                        <p>${err.message}</p>
-                    </div>
-                `;
+                console.error('Load Error:', err);
             }
         }
 
+        // --- FILTERING ---
         function filterOrders(filter) {
             currentFilter = filter;
-            
-            // Update button states
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-            
             renderOrders();
         }
 
+        // --- RENDERING ---
         function renderOrders() {
             const container = document.getElementById('ordersContainer');
-            
-            let filteredOrders = allOrders;
-            
+
+            let filtered = allOrders;
             if (currentFilter !== 'all') {
                 if (['pending_print', 'printing', 'printed'].includes(currentFilter)) {
-                    filteredOrders = allOrders.filter(o => o.print_status === currentFilter);
+                    filtered = allOrders.filter(o => o.print_status === currentFilter);
                 } else if (['dine_in', 'takeaway', 'delivery'].includes(currentFilter)) {
-                    filteredOrders = allOrders.filter(o => o.type === currentFilter);
+                    filtered = allOrders.filter(o => o.type === currentFilter);
                 }
             }
-            
-            if (filteredOrders.length === 0) {
+
+            if (filtered.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <h2>📭 Aucune commande</h2>
-                        <p>Aucune commande ne correspond aux critères sélectionnés</p>
+                        <span class="empty-icon">📭</span>
+                        <h2>Aucune commande</h2>
+                        <p>Il n'y a rien à afficher pour le moment.</p>
                     </div>
                 `;
                 return;
             }
-            
-            container.innerHTML = `
-                <div class="orders-grid">
-                    ${filteredOrders.map(order => renderOrderCard(order)).join('')}
-                </div>
-            `;
+
+            container.innerHTML = filtered.map(order => createOrderCard(order)).join('');
         }
 
-        function renderOrderCard(order) {
-            let items = [];
-            let customerInfo = {};
-            
+        function createOrderCard(order) {
+            // Parse JSON fields safely
+            let items = [], customer = {};
             try {
-                items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items || [];
-                customerInfo = typeof order.customer_info === 'string' ? JSON.parse(order.customer_info) : order.customer_info || {};
-            } catch (e) {
-                console.error('Parse error:', e);
-            }
-            
-            const typeEmoji = {
-                'dine_in': '🍽️',
-                'takeaway': '📦',
-                'delivery': '🚗'
-            };
-            
-            const statusText = {
-                'pending_print': 'À imprimer',
-                'printing': 'En cours',
-                'printed': 'Imprimée'
-            };
-            
+                items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+                customer = typeof order.customer_info === 'string' ? JSON.parse(order.customer_info) : order.customer_info;
+            } catch (e) { console.error('Parse JSON error', e); }
+
+            const typeIcon = { 'dine_in': '🍽️', 'takeaway': '📦', 'delivery': '🚗' }[order.type] || '📋';
+            const typeLabel = { 'dine_in': 'Sur Place', 'takeaway': 'À Emporter', 'delivery': 'Livraison' }[order.type] || order.type;
+            const date = new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
             return `
-                <div class="order-card">
-                    <div class="order-header">
-                        <div class="order-number">#${order.order_number || order.id}</div>
-                        <div class="order-status ${order.print_status}">${statusText[order.print_status] || order.print_status}</div>
+                <div class="order-card" id="card-${order.id}">
+                    <div class="card-header">
+                        <div>
+                            <div class="order-id">#${order.order_number || order.id}</div>
+                            <div class="order-meta">${date} • ${items.length} articles</div>
+                        </div>
+                        <div class="status-pill ${order.print_status}">${order.print_status}</div>
                     </div>
-                    
-                    <div class="order-info">
-                        <p>${typeEmoji[order.type] || '📋'} <strong>${order.type === 'dine_in' ? 'Sur place' : order.type === 'takeaway' ? 'À emporter' : 'Livraison'}</strong></p>
-                        ${customerInfo.name ? `<p>👤 ${customerInfo.name}</p>` : ''}
-                        ${customerInfo.phone ? `<p>📞 ${customerInfo.phone}</p>` : ''}
-                        ${customerInfo.address ? `<p>📍 ${customerInfo.address}</p>` : ''}
-                        ${customerInfo.notes ? `<p>📝 ${customerInfo.notes}</p>` : ''}
-                        <p>🕐 ${new Date(order.created_at).toLocaleString('fr-FR')}</p>
+
+                    <div class="card-body">
+                        <div class="info-row">
+                            <div class="info-icon">${typeIcon}</div>
+                            <strong>${typeLabel}</strong>
+                        </div>
+                        ${customer.name ? `
+                        <div class="info-row">
+                            <div class="info-icon">👤</div>
+                            <span>${customer.name}</span>
+                        </div>` : ''}
+                        ${customer.phone ? `
+                        <div class="info-row">
+                            <div class="info-icon">📞</div>
+                            <span>${customer.phone}</span>
+                        </div>` : ''}
+
+                        <div class="items-container">
+                            ${items.map(item => `
+                                <div class="item-row">
+                                    <div>
+                                        <span class="item-qty">${item.quantity}x</span>
+                                        <span class="item-name">${item.name}</span>
+                                    </div>
+                                    <span class="item-price">${parseFloat(item.price).toFixed(2)}€</span>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <div class="total-section">
+                            <span class="total-label">TOTAL</span>
+                            <span class="total-amount">${parseFloat(order.total_price).toFixed(2)} €</span>
+                        </div>
                     </div>
-                    
-                    <div class="items-list">
-                        ${items.map(item => `
-                            <div class="item">
-                                <span class="item-quantity">${item.quantity}x</span>
-                                <span class="item-name">${item.name}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                    
-                    <div class="total-price">${parseFloat(order.total_price || 0).toFixed(2)} €</div>
-                    
-                    <div class="actions">
-                        <button class="btn btn-print" onclick="printOrder(${order.id})" ${order.print_status === 'printed' ? 'disabled' : ''}>
-                            🖨️ Imprimer
+
+                    <div class="card-footer">
+                        <button class="btn btn-primary" onclick="toggleReprintMenu(${order.id})">
+                            🖨️ Options d'Impression
                         </button>
-                        <button class="btn btn-mark" onclick="markAsPrinted(${order.id})">
-                            ✅ Marquer
-                        </button>
+                        
+                        <!-- REPRINT MENU OVERLAY -->
+                        <div id="reprint-menu-${order.id}" class="reprint-menu">
+                            <button class="reprint-option" onclick="triggerReprint(${order.id}, 'reprint_all')">
+                                🖨️ Tout Réimprimer
+                            </button>
+                            <button class="reprint-option" onclick="triggerReprint(${order.id}, 'reprint_kitchen')">
+                                👨‍🍳 Réimprimer Cuisine
+                            </button>
+                            <button class="reprint-option" onclick="triggerReprint(${order.id}, 'reprint_cashier')">
+                                💰 Réimprimer Caisse
+                            </button>
+                            <button class="reprint-option" style="color: #ff7675" onclick="toggleReprintMenu(${order.id})">
+                                ✖️ Annuler
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
         }
 
-        async function printOrder(orderId) {
-            try {
-                // Update status to printing
-                const { error: updateError } = await supabase
-                    .from('orders')
-                    .update({ print_status: 'printing' })
-                    .eq('id', orderId);
-                
-                if (updateError) throw updateError;
-                
-                // Trigger the print via middleware (it will poll and detect the status change)
-                alert(`✅ Commande #${orderId} envoyée à l'impression!\n\nLe middleware va détecter ce changement et imprimer le ticket.`);
-                
-                await loadOrders();
-                
-            } catch (err) {
-                console.error('Erreur impression:', err);
-                alert('❌ Erreur: ' + err.message);
-            }
+        // --- ACTIONS ---
+        function toggleReprintMenu(id) {
+            const menu = document.getElementById(`reprint-menu-${id}`);
+            // Close others
+            document.querySelectorAll('.reprint-menu').forEach(el => {
+                if (el.id !== `reprint-menu-${id}`) el.classList.remove('show');
+            });
+            menu.classList.toggle('show');
         }
 
-        async function markAsPrinted(orderId) {
+        async function triggerReprint(orderId, mode) {
             try {
+                toggleReprintMenu(orderId); // Close menu
+
+                // Optimistic UI update
+                const card = document.getElementById(`card-${orderId}`);
+                if (card) card.style.opacity = '0.7';
+
                 const { error } = await supabase
                     .from('orders')
-                    .update({ print_status: 'printed' })
+                    .update({ print_status: mode })
                     .eq('id', orderId);
-                
+
                 if (error) throw error;
-                
-                await loadOrders();
-                
+
+                // Show feedback
+                // alert(`Commande envoyée : ${mode}`);
+
             } catch (err) {
-                console.error('Erreur marquage:', err);
-                alert('❌ Erreur: ' + err.message);
+                console.error('Reprint Error:', err);
+                alert('Erreur lors de la demande de réimpression');
             }
         }
 
-        // Initialize on page load
+        // Close menus when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.card-footer')) {
+                document.querySelectorAll('.reprint-menu').forEach(el => el.classList.remove('show'));
+            }
+        });
+
         window.onload = initSupabase;
     </script>
 </body>
+
 </html>

@@ -1,10 +1,16 @@
-require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+
+// Determine the directory where the executable (or script) is located
+// In 'pkg', process.execPath is the exe. In 'node', it's the node binary, so we use __dirname for dev.
+const appDir = process.pkg ? path.dirname(process.execPath) : __dirname;
+
+// Load .env from the application directory
+require('dotenv').config({ path: path.join(appDir, '.env') });
 const { spawn } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const EscPosEncoder = require('esc-pos-encoder');
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 
 // --- PowerShell Helper Functions ---
 
@@ -62,6 +68,7 @@ async function listAllPrinters() {
         console.table(printers.map(p => ({
             Name: p.Name,
             Port: p.PortName,
+            Driver: p.DriverName,
             Status: p.PrinterStatus
         })));
 
@@ -491,10 +498,71 @@ async function main() {
                 }
             } else {
                 // FIX #2: Log explicite quand aucune commande n'est trouvée
-                console.log("   ℹ️ Aucune commande en attente (print_status='pending_print').");
+                // console.log("   ℹ️ Aucune commande en attente (print_status='pending_print').");
             }
         } catch (err) {
             console.error("❌ Erreur inattendue dans la boucle de polling:", err);
+        }
+
+        // --- REPRINT POLLING ---
+        try {
+            const { data: reprintOrders, error: reprintError } = await supabase
+                .from('orders')
+                .select('*')
+                .in('print_status', ['reprint_kitchen', 'reprint_cashier', 'reprint_all']);
+
+            if (reprintError) {
+                console.error("❌ Erreur Polling Reprint:", reprintError.message);
+                return;
+            }
+
+            if (reprintOrders && reprintOrders.length > 0) {
+                for (const order of reprintOrders) {
+                    console.log(`🔄 Réimpression demandée pour #${order.id} (Mode: ${order.print_status})`);
+
+                    // 1. LOCK (optional, but good practice to avoid double processing if slow)
+                    // We skip lock for reprint to keep it simple, or we can set to 'printing' temporarily.
+                    // Let's just process immediately.
+
+                    // 2. PROCESS REPRINT
+                    if (order.print_status === 'reprint_kitchen') {
+                        if (kitchenPrinter) {
+                            console.log(`👨‍🍳 Réimpression CUISINE pour #${order.id}`);
+                            const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+                            const customerInfo = typeof order.customer_info === 'string' ? JSON.parse(order.customer_info) : order.customer_info;
+                            const ticketData = generateKitchenTicket(order, items, customerInfo);
+                            const base64 = Buffer.from(ticketData).toString('base64');
+                            await printRawPowershell(kitchenPrinter, base64);
+                        }
+                    } else if (order.print_status === 'reprint_cashier') {
+                        if (cashierPrinter) {
+                            console.log(`💰 Réimpression CAISSE pour #${order.id}`);
+                            const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+                            const customerInfo = typeof order.customer_info === 'string' ? JSON.parse(order.customer_info) : order.customer_info;
+                            const ticketData = generateCashierTicket(order, items, customerInfo);
+                            const base64 = Buffer.from(ticketData).toString('base64');
+                            await printRawPowershell(cashierPrinter, base64);
+                        }
+                    } else if (order.print_status === 'reprint_all') {
+                        console.log(`🖨️ Réimpression TOTALE pour #${order.id}`);
+                        await handleNewOrder(order, kitchenPrinter, cashierPrinter);
+                    }
+
+                    // 3. RESET STATUS TO PRINTED
+                    const { error: finalError } = await supabase
+                        .from('orders')
+                        .update({ print_status: 'printed' })
+                        .eq('id', order.id);
+
+                    if (finalError) {
+                        console.error(`⚠️ Erreur reset status reprint #${order.id}:`, finalError.message);
+                    } else {
+                        console.log(`✅ Réimpression terminée pour #${order.id}. Status remis à 'printed'.`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("❌ Erreur inattendue dans la boucle de polling (Reprint):", err);
         }
     }
 
